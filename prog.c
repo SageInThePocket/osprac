@@ -4,6 +4,6 @@
 
 int main()
 {
-	printf("User Id: %d\nGroup Id: %d\n", (int)getpid(), (int)getppid);
+	printf("User Id: %d\nGroup Id: %d\n", (int)getuid(), (int)getgid);
 	return 0;
 }
