@@ -32,7 +32,6 @@ int main()
   char pathname[] = "05-3.c";
   struct sembuf addBuf;
   struct sembuf decBuf;
-  struct sembuf waitZero;
   int semid;
 
   //Init buffers
@@ -43,10 +42,6 @@ int main()
   decBuf.sem_op = -1;
   decBuf.sem_flg = 0;
   decBuf.sem_num = 0;
-
-  waitZero.sem_op = 0;
-  waitZero.sem_flg = 0;
-  waitZero.sem_num = 0;
 
   if ((key = ftok(pathname, 0)) < 0) {
     printf("can\'t create key\n");
@@ -62,19 +57,12 @@ int main()
     printf("Semophore successfully created\n");
   }
 
-//inc
-      if (semop(semid, &addBuf, 1) < 0) {
-        printf("Can\'t wait for condition\n");
-        exit(-1);
-      }
-
   if (pipe(fd) < 0) {
     printf("Can\'t open pipe\n");
     exit(-1);
   }
 
   result = fork();
-
 
   if (result < 0) {
     printf("Can\'t fork child\n");
@@ -109,12 +97,6 @@ int main()
         printf("Can\'t wait for condition\n");
         exit(-1);
       }
-      //waitZero
-      if (semop(semid, &waitZero, 1) < 0) {
-        printf("Can\'t wait for condition\n");
-        exit(-1);
-      }
-      decBuf.sem_op = -2;
       //dec
       if (semop(semid, &decBuf, 1) < 0) {
         printf("Can\'t wait for condition\n");
@@ -138,8 +120,6 @@ int main()
     /* Child process */
     int counter = 0;
     while(1) {
-      decBuf.sem_op = -2;
-
       //dec
       if (semop(semid, &decBuf, 1) < 0) {
         printf("Can\'t wait for condition\n");
