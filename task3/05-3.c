@@ -6,22 +6,62 @@
 #include <sys/sem.h>
 #include <sys/types.h>
 
-/* Программа работает следующим образом:
- * Начальное значение семафора равно 0 из-за
- * чего дочерний процесс уходит в ожидание
- * так как он пытается отнять от значения семафора
- * единицу. После чего родительский процесс
- * отправляет сообщение ребенку и увеличивает
- * значение семафора на 1 тем самым давая возможность
- * дочернему процессу начать писать сообщение
- * родителю, но перед этим дочерний процесс уменьшает
- * значение семафора и не дает родительскому процессу
- * прочитать сообщение, пока дочерний процесс его
- * не отправил. После отправления сообщения дочерний
- * процесс увеличивает семафор на 1 и дает возможность
- * прочитать родительскому процессу переданное сообщение
- * а сам дочерний процесс ожидает ответа от родителя
- * и так это циклично повторяется*/
+/* Начальное значение семафора: 2
+ * Родитель:
+ * 1. D(S, 1)
+ * 2. Проверяет есть ли письмо от ребенка и если есть, то читает его
+ * 3. D(S, 1) (В этот момент значение семафора 0 и child может 
+ * начать работу, но родитель не может этого сделать так, как значение
+ * семафора 0, а для начала работы родителя значение должно быть >= 1)
+ * 
+ * Ребенок:
+ * 1. Z(S)
+ * 2. Читает письмо родителя
+ * 3. Пишет ответ
+ * 4. A(S, 2) (для начала работы родителя, при этом ребенок не может
+ * начать выполнение так как для этого необходимо значение семафора
+ * равное 0)
+ */
+
+void A(int sem_id, int value) {
+  if (value > 0) {
+    struct sembuf buf;
+    buf.sem_num = 0;
+    buf.sem_flg = 0;
+    buf.sem_op = value;
+
+    if (semop(sem_id, &buf, 1) < 0) {
+      printf("Can\'t wait for condition\n");
+      exit(-1);
+    }
+  }
+}
+
+void D(int sem_id, int value) {
+  if (value > 0) {
+    struct sembuf buf;
+    buf.sem_num = 0;
+    buf.sem_flg = 0;
+    buf.sem_op = -value;
+
+    if (semop(sem_id, &buf, 1) < 0) {
+      printf("Can\'t wait for condition\n");
+      exit(-1);
+    }
+  }
+}
+
+void Z(int sem_id) {
+  struct sembuf buf;
+  buf.sem_num = 0;
+  buf.sem_flg = 0;
+  buf.sem_op = 0;
+
+  if (semop(sem_id, &buf, 1) < 0) {
+    printf("Can\'t wait for condition\n");
+    exit(-1);
+  }
+}
 
 int main()
 {
@@ -30,18 +70,15 @@ int main()
   key_t key;
   char  resstring[14];
   char pathname[] = "05-3.c";
-  struct sembuf addBuf;
-  struct sembuf decBuf;
   int semid;
 
-  //Init buffers
-  addBuf.sem_op = 1;
-  addBuf.sem_flg = 0;
-  addBuf.sem_num = 0;
-
-  decBuf.sem_op = -1;
-  decBuf.sem_flg = 0;
-  decBuf.sem_num = 0;
+  int n;
+  printf("Enter count of message:\n");
+  scanf("%d", &n);
+  if (n < 2) {
+    printf("Count of message must be more or equals 2\n");
+    exit(-1);
+  }
 
   if ((key = ftok(pathname, 0)) < 0) {
     printf("can\'t create key\n");
@@ -57,6 +94,8 @@ int main()
     printf("Semophore successfully created\n");
   }
 
+  A(semid, 2);
+
   if (pipe(fd) < 0) {
     printf("Can\'t open pipe\n");
     exit(-1);
@@ -69,92 +108,67 @@ int main()
     exit(-1);
   } else if (result > 0) {
     /* Parent process */
-    int n;
-    printf("Enter count of message:\n");
-    scanf("%d", &n);
-    if (n < 2) {
-      printf("Count of message must be more or equals 2\n");
-      exit(-1);
-    }
-
     for (size_t i = 0; i < n; i++) {
+      D(semid, 1);
+
+      if (i != 0) {
+        size = read(fd[0], resstring, 14);
+        if (size != 14) {
+          printf("parent:\tCan\'t write all string to pipe\n");
+          exit(-1);
+        }
+        printf("parent:\tI read message from child: %s\n", resstring);
+      }
 
       char* msg = "Hello, child!";
       size = write(fd[1], msg, 14);
-
       if (size != 14) {
         printf("parent:\tCan\'t write all string to pipe\n");
         exit(-1);
       }
 
       printf("parent:\tI writing message...\n");
-      for(long long i = 0; i < 300000000L; ++i);
+      for(long long i = 0; i < 100000000L; ++i);
       printf("parent:\tI send message #%d to child: %s\n", i + 1, msg);
       printf("parent:\tWait answer from child\n");
-
-      //inc
-      if (semop(semid, &addBuf, 1) < 0) {
-        printf("Can\'t wait for condition\n");
-        exit(-1);
-      }
-      //dec
-      if (semop(semid, &decBuf, 1) < 0) {
-        printf("Can\'t wait for condition\n");
-        exit(-1);
-      }
-
-      size = read(fd[0], resstring, 14);
-      if (size != 14){
-        printf("parent:\tCan\'t read message from child\n");
-        exit(-1);
-      }
-
-      printf("parent: I read message from child: %s\n", resstring);
+      
+      D(semid, 1);
     }
-
-    
     close(fd[0]);
     printf("Parent exit\n");
 
   } else {
     /* Child process */
     int counter = 0;
-    while(1) {
-      //dec
-      if (semop(semid, &decBuf, 1) < 0) {
-        printf("Can\'t wait for condition\n");
-        exit(-1);
-      }
+    for (int i = 0; i < n; i++) {
+      Z(semid);
+
       size = read(fd[0], resstring, 14);
-
       if (size < 0) {
-        close(fd[1]);
-        close(fd[0]);
-
-        printf("All processes are closed");
-        return 0;
+        printf("child:\tCan\'t write all string to pipe\n");
+        exit(-1);
       }
 
       printf("child:\tI get message #%d from parent: %s\n", ++counter, resstring);
-      char* msg = "Hello, parent";      
 
+      char* msg = "Hello, parent";      
       size = write(fd[1], msg, 14);
       if (size != 14) {
         printf("child:\tI can\'t write all string");
         exit(-1);
       }
 
-      printf("child:\tI writing message...\n");
-      for(long long i = 0; i < 300000000L; ++i);
-      printf("child:\tI send message #%d to parent: %s\n", counter, msg);
-      printf("child:\tWait answer from parent\n");
-
-      //inc
-      if (semop(semid, &addBuf, 1) < 0) {
-        printf("Can\'t wait for condition\n");
-        exit(-1);
+      if (i < n-1) {
+        printf("child:\tI writing message...\n");
+        for(long long i = 0; i < 100000000L; ++i);
+        printf("child:\tI send message #%d to parent: %s\n", counter, msg);
+        printf("child:\tWait answer from parent\n");
       }
+
+      A(semid, 2);
     }
+    close(fd[1]);
+    printf("Child exit\n");
   }
 
   return 0;
