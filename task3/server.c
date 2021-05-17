@@ -17,9 +17,6 @@ int main(void)
   key_t  key;
   int i,len, maxlen;
   long j;
-
-  printf("lll");
-
   
   struct request {
     long mtype;
@@ -53,6 +50,11 @@ int main(void)
       exit(-1);
     }
     
+    if (requestbuf.mtype == 2) {
+      printf("Server\tI was killed\n");
+      exit(-1);
+    }
+
     float num = requestbuf.info.message;
 
     printf("Server\tClient:%d send number %f\n", requestbuf.info.pid, num);
