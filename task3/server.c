@@ -45,7 +45,7 @@ int main(void)
   
   while(1) {  
     maxlen = sizeof(requestbuf.info);
-    if (msgrcv(msqid, (struct request *) &requestbuf, maxlen, 0, 0) < 0) {
+    if (msgrcv(msqid, (struct request *) &requestbuf, maxlen, -2, 0) < 0) {
       printf("Can\'t receive message from queue\n");
       exit(-1);
     }
